@@ -7,6 +7,10 @@ const fs = require('fs');
 // Use a test database
 process.env.DB_PATH = path.join('/tmp', 'zimride-test.db');
 process.env.JWT_SECRET = 'test_secret';
+// Force console SMS provider so no real HTTP calls are made in tests
+process.env.SMS_PROVIDER = 'console';
+// Skip rate limiting in tests
+process.env.NODE_ENV = 'test';
 
 // Clean up test db before each test file
 if (fs.existsSync(process.env.DB_PATH)) {
@@ -213,6 +217,183 @@ describe('ZimRide API', () => {
         .set('Authorization', `Bearer ${token1}`);
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
+    });
+  });
+
+  // ─── OTP / Phone Verification ───────────────────────────────────────────────
+  describe('OTP & SMS Verification', () => {
+    const otpPhone = '+263771000001';
+    let otpUserToken;
+    let capturedOtp;
+
+    test('POST /api/auth/register with phone auto-sends OTP and returns devOtp in test mode', async () => {
+      const res = await request(app)
+        .post('/api/auth/register')
+        .send({ name: 'Rudo Dube', email: 'rudo@example.com', password: 'secure123', phone: otpPhone });
+      expect(res.status).toBe(201);
+      expect(res.body.token).toBeDefined();
+      expect(res.body.phoneVerification).toBe(true);
+      expect(res.body.devOtp).toMatch(/^\d{6}$/);
+      expect(res.body.user.phone_verified).toBe(false);
+      otpUserToken = res.body.token;
+      capturedOtp = res.body.devOtp;
+    });
+
+    test('POST /api/auth/verify-phone - rejects missing OTP', async () => {
+      const res = await request(app)
+        .post('/api/auth/verify-phone')
+        .set('Authorization', `Bearer ${otpUserToken}`)
+        .send({});
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/OTP is required/i);
+    });
+
+    test('POST /api/auth/verify-phone - rejects wrong OTP and tracks attempts', async () => {
+      const res = await request(app)
+        .post('/api/auth/verify-phone')
+        .set('Authorization', `Bearer ${otpUserToken}`)
+        .send({ otp: '000000' });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/invalid otp/i);
+    });
+
+    test('POST /api/auth/verify-phone - succeeds with correct OTP', async () => {
+      const res = await request(app)
+        .post('/api/auth/verify-phone')
+        .set('Authorization', `Bearer ${otpUserToken}`)
+        .send({ otp: capturedOtp });
+      expect(res.status).toBe(200);
+      expect(res.body.phone_verified).toBe(true);
+    });
+
+    test('POST /api/auth/verify-phone - rejects once already verified', async () => {
+      const res = await request(app)
+        .post('/api/auth/verify-phone')
+        .set('Authorization', `Bearer ${otpUserToken}`)
+        .send({ otp: capturedOtp });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/already verified/i);
+    });
+
+    test('POST /api/auth/send-otp - sends OTP to registered phone', async () => {
+      const res = await request(app)
+        .post('/api/auth/send-otp')
+        .send({ phone: otpPhone });
+      expect(res.status).toBe(200);
+      expect(res.body.message).toMatch(/sent/i);
+      expect(res.body.devOtp).toMatch(/^\d{6}$/);
+      capturedOtp = res.body.devOtp;
+    });
+
+    test('POST /api/auth/send-otp - rejects missing phone', async () => {
+      const res = await request(app)
+        .post('/api/auth/send-otp')
+        .send({});
+      expect(res.status).toBe(400);
+    });
+
+    test('POST /api/auth/verify-otp - phone login with correct OTP', async () => {
+      const res = await request(app)
+        .post('/api/auth/verify-otp')
+        .send({ phone: otpPhone, otp: capturedOtp });
+      expect(res.status).toBe(200);
+      expect(res.body.token).toBeDefined();
+      expect(res.body.user.phone).toBe(otpPhone);
+      expect(res.body.user.phone_verified).toBe(true);
+    });
+
+    test('POST /api/auth/verify-otp - rejects wrong OTP', async () => {
+      // First send a fresh OTP
+      const sendRes = await request(app)
+        .post('/api/auth/send-otp')
+        .send({ phone: otpPhone });
+      expect(sendRes.body.devOtp).toMatch(/^\d{6}$/);
+
+      const res = await request(app)
+        .post('/api/auth/verify-otp')
+        .send({ phone: otpPhone, otp: '111111' });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/invalid otp/i);
+    });
+
+    test('POST /api/auth/verify-otp - rejects unregistered phone', async () => {
+      // Send OTP to a phone not linked to any account
+      const unregisteredPhone = '+263779999999';
+      const sendRes = await request(app)
+        .post('/api/auth/send-otp')
+        .send({ phone: unregisteredPhone });
+      expect(sendRes.status).toBe(200);
+
+      const res = await request(app)
+        .post('/api/auth/verify-otp')
+        .send({ phone: unregisteredPhone, otp: sendRes.body.devOtp });
+      expect(res.status).toBe(404);
+      expect(res.body.error).toMatch(/no account/i);
+    });
+
+    test('POST /api/auth/resend-otp - resends OTP for logged-in user', async () => {
+      // Register a new user with a phone but don't verify
+      const regRes = await request(app)
+        .post('/api/auth/register')
+        .send({ name: 'Farai Ncube', email: 'farai@example.com', password: 'pass123', phone: '+263772000002' });
+      expect(regRes.status).toBe(201);
+
+      const res = await request(app)
+        .post('/api/auth/resend-otp')
+        .set('Authorization', `Bearer ${regRes.body.token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.devOtp).toMatch(/^\d{6}$/);
+    });
+
+    test('POST /api/auth/resend-otp - rejects when no phone on account', async () => {
+      // Register a user with no phone
+      const regRes = await request(app)
+        .post('/api/auth/register')
+        .send({ name: 'Nophone User', email: 'nophone@example.com', password: 'pass123' });
+      expect(regRes.status).toBe(201);
+
+      const res = await request(app)
+        .post('/api/auth/resend-otp')
+        .set('Authorization', `Bearer ${regRes.body.token}`);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/no phone/i);
+    });
+
+    test('POST /api/auth/verify-otp - rejects already-used OTP', async () => {
+      // Send a fresh OTP, use it once (succeeds), then try again (should fail)
+      const sendRes = await request(app)
+        .post('/api/auth/send-otp')
+        .send({ phone: otpPhone });
+      expect(sendRes.status).toBe(200);
+      const freshOtp = sendRes.body.devOtp;
+
+      // First use — succeeds
+      const first = await request(app)
+        .post('/api/auth/verify-otp')
+        .send({ phone: otpPhone, otp: freshOtp });
+      expect(first.status).toBe(200);
+
+      // Second use — OTP is already consumed
+      const second = await request(app)
+        .post('/api/auth/verify-otp')
+        .send({ phone: otpPhone, otp: freshOtp });
+      expect(second.status).toBe(400);
+      expect(second.body.error).toBeDefined();
+    });
+
+    test('POST /api/auth/send-otp - normalises Zimbabwean local phone format', async () => {
+      // Register user with local format, try OTP with normalised format
+      const localPhone = '0772000003'; // local ZW format
+      await request(app)
+        .post('/api/auth/register')
+        .send({ name: 'Tafara Moyo', email: 'tafara@example.com', password: 'pass1234', phone: localPhone });
+
+      // Should work with both local and E.164 formats
+      const res = await request(app)
+        .post('/api/auth/send-otp')
+        .send({ phone: localPhone });
+      expect(res.status).toBe(200);
+      expect(res.body.devOtp).toMatch(/^\d{6}$/);
     });
   });
 });

@@ -47,17 +47,23 @@ git clone https://github.com/vedushare/zimride.git
 cd zimride
 ```
 
-### 2. Start the Backend
+### 2. Configure the Backend
 ```bash
 cd backend
+cp .env.example .env
+# Edit .env — set LOCALHOSTZW_API_KEY and a strong JWT_SECRET
+```
+
+### 3. Start the Backend
+```bash
 npm install
 npm start
 # API runs on http://localhost:5000
 ```
 
-### 3. Start the Frontend
+### 4. Start the Frontend
 ```bash
-cd frontend
+cd ../frontend
 npm install
 npm run dev
 # App runs on http://localhost:3000
@@ -67,13 +73,35 @@ The frontend proxies `/api` requests to the backend automatically.
 
 ---
 
+## 📲 SMS / OTP Configuration
+
+ZimRide uses **[sms.localhost.co.zw](https://sms.localhost.co.zw)** — a Zimbabwean branded SMS platform — to deliver one-time verification codes.
+
+Set the following in `backend/.env`:
+
+```env
+SMS_PROVIDER=localhostzw
+LOCALHOSTZW_API_KEY=your_api_key_here   # from sms.localhost.co.zw dashboard
+LOCALHOSTZW_SENDER_ID=ZimRide           # shown on recipient's phone (max 11 chars)
+```
+
+When `LOCALHOSTZW_API_KEY` is not set (development), the provider falls back to **console** mode — OTPs are printed to stdout and returned in the API response as `devOtp` so you can test without real SMS.
+
+Alternative providers (`africastalking`, `twilio`) are supported via the same `SMS_PROVIDER` env var — see `backend/.env.example` for full configuration.
+
+---
+
 ## 📡 API Reference
 
 ### Authentication
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/auth/register` | Register a new user |
-| POST | `/api/auth/login` | Login, receive JWT |
+| POST | `/api/auth/register` | Register a new user (auto-sends OTP if phone provided) |
+| POST | `/api/auth/login` | Login with email + password, receive JWT |
+| POST | `/api/auth/send-otp` | Send OTP to a phone number |
+| POST | `/api/auth/verify-otp` | Phone-based login — verify OTP → JWT |
+| POST | `/api/auth/verify-phone` | Verify phone after registration (auth required) |
+| POST | `/api/auth/resend-otp` | Resend verification OTP (auth required) |
 
 ### Rides
 | Method | Endpoint | Description |
@@ -109,7 +137,7 @@ cd backend
 npm test
 ```
 
-All 23 API tests cover authentication, rides, bookings, and user profile endpoints.
+All 37 API tests cover authentication, OTP/phone verification, rides, bookings, and user profile endpoints.
 
 ---
 

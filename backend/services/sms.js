@@ -3,37 +3,53 @@
 /**
  * SMS Service for ZimRide
  *
- * Supported providers (set SMS_PROVIDER env var):
- *   - "africastalking"  (default for production — best coverage in Zimbabwe)
- *   - "twilio"          (alternative international provider)
- *   - "console"         (development/test — logs OTP to stdout)
+ * Primary provider: sms.localhost.co.zw (Zimbabwean branded SMS platform)
+ *   Endpoint: POST https://sms.localhost.co.zw/api/v1/sms/send/
+ *   Auth:     X-API-KEY header
+ *   Payload:  { to, sender, message }
  *
- * Environment variables by provider:
+ * Set SMS_PROVIDER env var to choose a provider:
+ *   "localhostzw"   — sms.localhost.co.zw  (DEFAULT — best for Zimbabwe)
+ *   "africastalking" — Africa's Talking
+ *   "twilio"         — Twilio
+ *   "console"        — development/test (logs OTP to stdout, returns devOtp in response)
  *
- *  Africa's Talking:
- *    AT_USERNAME, AT_API_KEY, AT_SENDER_ID (optional, defaults to 'ZimRide')
+ * If LOCALHOSTZW_API_KEY is not set, falls back to "console" automatically.
  *
- *  Twilio:
+ * Required env vars per provider:
+ *
+ *  localhostzw (default):
+ *    LOCALHOSTZW_API_KEY   — API key from sms.localhost.co.zw dashboard
+ *    LOCALHOSTZW_SENDER_ID — Sender name shown on phone (max 11 chars, default: "ZimRide")
+ *
+ *  africastalking:
+ *    AT_USERNAME, AT_API_KEY, AT_SENDER_ID (optional, default: "ZimRide")
+ *
+ *  twilio:
  *    TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER
  *
- *  Console (dev/test):
- *    No extra config needed. OTP is printed to stdout and also returned
- *    in the API response so tests can read it without real SMS.
+ *  console:
+ *    No config needed. OTP is printed to stdout. devOtp field returned in API
+ *    response so tests and local development can read the code without real SMS.
  */
 
 const https = require('https');
 
-const PROVIDER = process.env.SMS_PROVIDER || 'console';
+// Auto-select provider: prefer localhostzw if API key is configured, else console
+const PROVIDER = process.env.SMS_PROVIDER
+  || (process.env.LOCALHOSTZW_API_KEY ? 'localhostzw' : 'console');
 
 /**
  * Send an SMS message.
- * @param {string} to   - Recipient phone in international format e.g. +263771234567
+ * @param {string} to   - Recipient phone in E.164 format, e.g. +263771234567
  * @param {string} body - SMS body text
  * @returns {Promise<{ success: boolean, devOtp?: string }>}
- *   In console mode, devOtp carries the OTP so tests can inspect it.
+ *   In console/dev mode devOtp carries the OTP so tests can read it.
  */
 async function sendSms(to, body) {
   switch (PROVIDER) {
+    case 'localhostzw':
+      return sendViaLocalhostZw(to, body);
     case 'africastalking':
       return sendViaAfricasTalking(to, body);
     case 'twilio':
@@ -43,9 +59,54 @@ async function sendSms(to, body) {
   }
 }
 
+// ─── localhost.co.zw ─────────────────────────────────────────────────────────
+
+function sendViaLocalhostZw(to, body) {
+  const apiKey = process.env.LOCALHOSTZW_API_KEY;
+  const sender = process.env.LOCALHOSTZW_SENDER_ID || 'ZimRide';
+
+  if (!apiKey) {
+    throw new Error(
+      'localhost.co.zw API key not configured. ' +
+      'Set LOCALHOSTZW_API_KEY in your .env file. ' +
+      'Get your key at https://sms.localhost.co.zw'
+    );
+  }
+
+  const payload = JSON.stringify({ to, sender, message: body });
+
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'sms.localhost.co.zw',
+      path: '/api/v1/sms/send/',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-KEY': apiKey,
+        'Content-Length': Buffer.byteLength(payload),
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve({ success: true });
+        } else {
+          reject(new Error(`localhost.co.zw API error ${res.statusCode}: ${data}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
 // ─── Africa's Talking ────────────────────────────────────────────────────────
 
-async function sendViaAfricasTalking(to, body) {
+function sendViaAfricasTalking(to, body) {
   const username = process.env.AT_USERNAME;
   const apiKey = process.env.AT_API_KEY;
   const senderId = process.env.AT_SENDER_ID || 'ZimRide';
@@ -96,7 +157,7 @@ async function sendViaAfricasTalking(to, body) {
 
 // ─── Twilio ──────────────────────────────────────────────────────────────────
 
-async function sendViaTwilio(to, body) {
+function sendViaTwilio(to, body) {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_PHONE_NUMBER;
@@ -140,12 +201,13 @@ async function sendViaTwilio(to, body) {
 // ─── Console (dev/test) ──────────────────────────────────────────────────────
 
 function sendViaConsole(to, body) {
-  // Extract OTP from body for convenience in tests
   const otpMatch = body.match(/\b(\d{6})\b/);
   const otp = otpMatch ? otpMatch[1] : null;
   console.log(`[ZimRide SMS] To: ${to} | ${body}`);
-  // Return devOtp only in non-production environments
-  return Promise.resolve({ success: true, devOtp: process.env.NODE_ENV !== 'production' ? otp : undefined });
+  return Promise.resolve({
+    success: true,
+    devOtp: process.env.NODE_ENV !== 'production' ? otp : undefined,
+  });
 }
 
 module.exports = { sendSms };

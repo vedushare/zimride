@@ -15,6 +15,10 @@ api.interceptors.request.use((config) => {
 // Auth
 export const register = (data) => api.post('/auth/register', data);
 export const login = (data) => api.post('/auth/login', data);
+export const sendOtp = (phone) => api.post('/auth/send-otp', { phone });
+export const verifyOtp = (phone, otp) => api.post('/auth/verify-otp', { phone, otp });
+export const verifyPhone = (otp) => api.post('/auth/verify-phone', { otp });
+export const resendOtp = () => api.post('/auth/resend-otp');
 
 // Rides
 export const getRides = (params) => api.get('/rides', { params });

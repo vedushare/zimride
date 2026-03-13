@@ -21,7 +21,12 @@ export default function Register() {
     try {
       const res = await api.register(form);
       login(res.data.token, res.data.user);
-      navigate('/');
+      // If a phone was supplied and an OTP was sent, go straight to verification
+      if (form.phone && res.data.phoneVerification) {
+        navigate('/verify-phone', { state: { phone: res.data.user.phone } });
+      } else {
+        navigate('/');
+      }
     } catch (err) {
       setError(err.response?.data?.error || 'Registration failed. Please try again.');
     } finally {
@@ -62,13 +67,16 @@ export default function Register() {
             />
           </div>
           <div className="form-group">
-            <label>Phone number (optional)</label>
+            <label>
+              Phone number <span className="label-badge">SMS verification</span>
+            </label>
             <input
               type="tel"
               placeholder="+263 77 123 4567"
               value={form.phone}
               onChange={e => setForm({ ...form, phone: e.target.value })}
             />
+            <span className="field-hint">A one-time code will be sent via sms.localhost.co.zw to verify your number.</span>
           </div>
           <div className="form-group">
             <label>Password</label>
@@ -81,7 +89,7 @@ export default function Register() {
             />
           </div>
           <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
-            {loading ? 'Creating account...' : 'Create Account'}
+            {loading ? 'Creating account…' : 'Create Account'}
           </button>
         </form>
 

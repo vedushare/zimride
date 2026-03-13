@@ -62,6 +62,14 @@ export default function Login() {
           </button>
         </form>
 
+        <div className="auth-divider">
+          <span>or</span>
+        </div>
+
+        <Link to="/phone-login" className="btn btn-outline btn-full">
+          📱 Login with Phone & OTP
+        </Link>
+
         <p className="auth-footer">
           Don't have an account? <Link to="/register">Sign up free</Link>
         </p>

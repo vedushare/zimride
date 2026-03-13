@@ -1,6 +1,7 @@
 # Backend
 backend/node_modules/
 backend/data/
+backend/.env
 
 # Frontend
 frontend/node_modules/
@@ -8,6 +9,7 @@ frontend/dist/
 
 # Environment
 .env
+**/.env
 *.env.local
 
 # System

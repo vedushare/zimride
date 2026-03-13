@@ -5,6 +5,8 @@ import Footer from './components/Footer.jsx';
 import Home from './pages/Home.jsx';
 import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
+import PhoneLogin from './pages/PhoneLogin.jsx';
+import VerifyPhone from './pages/VerifyPhone.jsx';
 import SearchRides from './pages/SearchRides.jsx';
 import PostRide from './pages/PostRide.jsx';
 import RideDetails from './pages/RideDetails.jsx';
@@ -25,6 +27,8 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/phone-login" element={<PhoneLogin />} />
+          <Route path="/verify-phone" element={<ProtectedRoute><VerifyPhone /></ProtectedRoute>} />
           <Route path="/rides" element={<SearchRides />} />
           <Route path="/rides/:id" element={<RideDetails />} />
           <Route path="/post-ride" element={<ProtectedRoute><PostRide /></ProtectedRoute>} />
