@@ -1,3 +1,7 @@
+# Root workspace
+node_modules/
+package-lock.json
+
 # Backend
 backend/node_modules/
 backend/data/
