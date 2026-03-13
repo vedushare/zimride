@@ -21,6 +21,7 @@ function initDatabase() {
       email TEXT UNIQUE NOT NULL,
       password TEXT NOT NULL,
       phone TEXT,
+      phone_verified INTEGER DEFAULT 0,
       bio TEXT,
       avatar TEXT,
       rating REAL DEFAULT 0,
@@ -68,7 +69,23 @@ function initDatabase() {
       FOREIGN KEY (reviewed_id) REFERENCES users(id),
       FOREIGN KEY (ride_id) REFERENCES rides(id)
     );
+
+    CREATE TABLE IF NOT EXISTS otp_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      phone TEXT NOT NULL,
+      otp_code TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      attempts INTEGER DEFAULT 0,
+      used INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
   `);
+
+  // Migrate existing users table to add phone_verified if it doesn't exist yet
+  const cols = db.prepare('PRAGMA table_info(users)').all();
+  if (!cols.find(c => c.name === 'phone_verified')) {
+    db.exec('ALTER TABLE users ADD COLUMN phone_verified INTEGER DEFAULT 0');
+  }
 }
 
 initDatabase();
